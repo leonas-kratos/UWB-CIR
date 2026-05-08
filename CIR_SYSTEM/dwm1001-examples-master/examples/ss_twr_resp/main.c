@@ -44,14 +44,14 @@
 static dwt_config_t config = {
     5,                /* Channel number. */
     DWT_PRF_64M,      /* Pulse repetition frequency. */
-    DWT_PLEN_1024,     /* Preamble length. Used in TX only. */
+    DWT_PLEN_128,     /* Preamble length. Used in TX only. */
     DWT_PAC32,         /* Preamble acquisition chunk size. Used in RX only. */
-    10,               /* TX preamble code. Used in TX only. */
-    10,               /* RX preamble code. Used in RX only. */
+    8,               /* TX preamble code. Used in TX only. */
+    8,               /* RX preamble code. Used in RX only. */
     1,                /* 0 to use standard SFD, 1 to use non-standard SFD. */
     DWT_BR_6M8,       /* Data rate. */
     DWT_PHRMODE_STD,  /* PHY header mode. */
-    (1025 + 64 - 8)     /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
+    (1025 + 64 - 32)     /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
 };
 
 #define TASK_DELAY        10            /**< Task delay. Delays a LED0 task for 200 ms */
@@ -143,11 +143,7 @@ int main(void)
   /* Apply default antenna delay value. Defined in port platform.h */
   dwt_setrxantennadelay(RX_ANT_DLY);
   dwt_settxantennadelay(TX_ANT_DLY);
-  dwt_txconfig_t txconfig;
-  txconfig.PGdly = 0xB5;         // PG delay cho channel 5
-  txconfig.power = 0x0E082848UL; // Max recommended power, CH5, PRF64M
 
-  dwt_configuretxrf(&txconfig);
   /* Set preamble timeout for expected frames.  */
   //dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
