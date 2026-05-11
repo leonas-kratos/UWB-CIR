@@ -16,7 +16,7 @@
 #define RNG_DELAY_MS 1
 
 /* Device ID for this responder - change this value for each device */
-#define MY_DEVICE_ID 0x1001
+#define MY_DEVICE_ID 0x1008
 
 /* Frames used in the ranging process. See NOTE 2,3 below. */
 // MODIFIED: Poll message now includes target device ID

@@ -15,9 +15,9 @@
 
 #define APP_NAME "SS TWR INIT v2.0 - PURE TDMA"
 
-#define TIME_SLOT_MS          2
-#define RESPONSE_TIMEOUT_MS   5
-#define CYCLE_DELAY_MS        2
+#define TIME_SLOT_MS          0
+#define RESPONSE_TIMEOUT_MS   3
+#define CYCLE_DELAY_MS        1
 #define MAX_RETRIES_PER_CYCLE 5
 
 /* Device IDs */
@@ -26,11 +26,15 @@
 #define ANCHOR_2 0x1002
 #define ANCHOR_3 0x1003
 #define ANCHOR_4 0x1004
+#define ANCHOR_5 0x1005
+#define ANCHOR_6 0x1006
+#define ANCHOR_7 0x1007
+#define ANCHOR_8 0x1008
 
-#define NUM_ANCHORS 1
+#define NUM_ANCHORS 8
 
 /* CIR storage */
-#define CIR_SAMPLES_PER_ANCHOR 100
+#define CIR_SAMPLES_PER_ANCHOR 20
 
 typedef struct {
     int16_t real;
@@ -59,7 +63,7 @@ typedef struct {
 static anchor_data_t anchor_data[NUM_ANCHORS];
 
 /* Global arrays */
-static uint32 anchor_ids[NUM_ANCHORS] = {ANCHOR_1, ANCHOR_2, ANCHOR_3, ANCHOR_4};
+static uint32 anchor_ids[NUM_ANCHORS] = {ANCHOR_1, ANCHOR_2, ANCHOR_3, ANCHOR_4, ANCHOR_5, ANCHOR_6, ANCHOR_7, ANCHOR_8};
 
 /* Message frames */
 static uint8 tx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 'I', 'O', 'V', 'E', 0xE0, 0, 0, 0, 0, 0, 0};
@@ -183,7 +187,7 @@ int8_t RX_PWR(dwt_rxdiag_t diag)
 
 static void read_cir_samples_fast(cir_sample_t *samples, int fp_index)
 {
-    int start_idx = fp_index - 5;
+    int start_idx = fp_index - 2;
     if (start_idx < 0) start_idx = 0;
 
     int max_idx = 1016 - CIR_SAMPLES_PER_ANCHOR;
@@ -313,22 +317,21 @@ static void print_all_distances(void)
         anchor_data_t *data = &anchor_data[anchor_idx];
         int pos = 0;
 
-        /* NLOS placeholder = 0, RANGE = distance (mm) */
         pos += sprintf(line_buffer + pos,
-                       "0,%.0f",
+                       "0x%04X,%.0f",
+                       anchor_ids[anchor_idx],
                        data->distance);
 
         /* FP_IDX, FP_AMP1, FP_AMP2, FP_AMP3, STDEV_NOISE, CIR_PWR, MAX_NOISE, RXPACC */
         pos += sprintf(line_buffer + pos,
-                       ",%u,%u,%u,%u,%u,%u,%u,%u",
+                       ",%u,%u,%u,%u,%u,%u,%u",
                        data->fp_index,
                        data->diagnostics.firstPathAmp1,
                        data->diagnostics.firstPathAmp2,
                        data->diagnostics.firstPathAmp3,
                        data->diagnostics.stdNoise,
                        data->cir_pwr,
-                       data->diagnostics.maxNoise,
-                       data->diagnostics.rxPreamCount);
+                       data->diagnostics.maxNoise);
 
         /* CH, FRAME_LEN, PREAM_LEN, BITRATE, PRFR — từ config tĩnh + frame_len */
         //pos += sprintf(line_buffer + pos,
