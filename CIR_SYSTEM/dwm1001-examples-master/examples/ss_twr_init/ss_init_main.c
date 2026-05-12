@@ -15,9 +15,9 @@
 
 #define APP_NAME "SS TWR INIT v2.0 - PURE TDMA"
 
-#define TIME_SLOT_MS          0
-#define RESPONSE_TIMEOUT_MS   3
-#define CYCLE_DELAY_MS        1
+#define TIME_SLOT_MS          2
+#define RESPONSE_TIMEOUT_MS   5
+#define CYCLE_DELAY_MS        3
 #define MAX_RETRIES_PER_CYCLE 5
 
 /* Device IDs */
