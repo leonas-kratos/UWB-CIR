@@ -1,0 +1,3 @@
+1002:
+#define TX_ANT_DLY 16456
+#define RX_ANT_DLY 16363
