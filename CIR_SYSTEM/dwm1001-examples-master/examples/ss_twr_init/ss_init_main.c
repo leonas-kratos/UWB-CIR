@@ -22,7 +22,7 @@
 
 /* Device IDs */
 #define MY_INITIATOR_DEVICE_ID 0x5678
-#define ANCHOR_1 0x1001
+#define ANCHOR_1 0x1003
 #define ANCHOR_2 0x1002
 #define ANCHOR_3 0x1003
 #define ANCHOR_4 0x1004
@@ -31,10 +31,10 @@
 #define ANCHOR_7 0x1007
 #define ANCHOR_8 0x1008
 
-#define NUM_ANCHORS 8
+#define NUM_ANCHORS 1
 
 /* CIR storage */
-#define CIR_SAMPLES_PER_ANCHOR 20
+#define CIR_SAMPLES_PER_ANCHOR 0
 
 typedef struct {
     int16_t real;
@@ -323,15 +323,15 @@ static void print_all_distances(void)
                        data->distance);
 
         /* FP_IDX, FP_AMP1, FP_AMP2, FP_AMP3, STDEV_NOISE, CIR_PWR, MAX_NOISE, RXPACC */
-        pos += sprintf(line_buffer + pos,
-                       ",%u,%u,%u,%u,%u,%u,%u",
-                       data->fp_index,
-                       data->diagnostics.firstPathAmp1,
-                       data->diagnostics.firstPathAmp2,
-                       data->diagnostics.firstPathAmp3,
-                       data->diagnostics.stdNoise,
-                       data->cir_pwr,
-                       data->diagnostics.maxNoise);
+        //pos += sprintf(line_buffer + pos,
+        //               ",%u,%u,%u,%u,%u,%u,%u",
+        //               data->fp_index,
+        //               data->diagnostics.firstPathAmp1,
+        //               data->diagnostics.firstPathAmp2,
+        //               data->diagnostics.firstPathAmp3,
+        //               data->diagnostics.stdNoise,
+        //               data->cir_pwr,
+        //               data->diagnostics.maxNoise);
 
         /* CH, FRAME_LEN, PREAM_LEN, BITRATE, PRFR — từ config tĩnh + frame_len */
         //pos += sprintf(line_buffer + pos,

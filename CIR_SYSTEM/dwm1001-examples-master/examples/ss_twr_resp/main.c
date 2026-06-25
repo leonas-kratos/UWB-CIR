@@ -42,7 +42,7 @@
 //-----------------dw1000----------------------------
 
 static dwt_config_t config = {
-    5,                /* Channel number. */
+    2,                /* Channel number. */
     DWT_PRF_64M,      /* Pulse repetition frequency. */
     DWT_PLEN_128,     /* Preamble length. Used in TX only. */
     DWT_PAC32,         /* Preamble acquisition chunk size. Used in RX only. */
