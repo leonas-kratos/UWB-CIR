@@ -12,17 +12,18 @@
 #include "deca_device_api.h"
 #include "deca_regs.h"
 #include "port_platform.h"
+#include "app_uart.h"
 
 #define APP_NAME "SS TWR INIT v2.0 - PURE TDMA"
 
-#define TIME_SLOT_MS          2
-#define RESPONSE_TIMEOUT_MS   5
+#define TIME_SLOT_MS          0
+#define RESPONSE_TIMEOUT_MS   8
 #define CYCLE_DELAY_MS        3
-#define MAX_RETRIES_PER_CYCLE 5
+#define MAX_RETRIES_PER_CYCLE 3
 
 /* Device IDs */
 #define MY_INITIATOR_DEVICE_ID 0x5678
-#define ANCHOR_1 0x1003
+#define ANCHOR_1 0x1001
 #define ANCHOR_2 0x1002
 #define ANCHOR_3 0x1003
 #define ANCHOR_4 0x1004
@@ -31,10 +32,15 @@
 #define ANCHOR_7 0x1007
 #define ANCHOR_8 0x1008
 
-#define NUM_ANCHORS 1
+#define NUM_ANCHORS 4
 
 /* CIR storage */
-#define CIR_SAMPLES_PER_ANCHOR 0
+#define CIR_SAMPLES_PER_ANCHOR 1016   /* toàn bộ accumulator — dùng cho mode FULL */
+
+/* Mode FAST: cửa sổ quanh First Path. PHẢI khớp FP_OFFSET_PRE / FP_OFFSET_POST
+ * trong Code/split_io.py (2 + 48 = 50 mẫu, CIR0 = mẫu FP_IDX-2). */
+#define CIR_FAST_PRE           2      /* số mẫu đọc TRƯỚC first path */
+#define CIR_FAST_LEN           50     /* = CIR_FAST_PRE + 48 mẫu sau first path */
 
 typedef struct {
     int16_t real;
@@ -57,6 +63,11 @@ typedef struct {
     uint16_t        cir_pwr;
     uint16_t        fp_index;
     uint32_t        frame_len;
+    /* Cửa sổ CIR đã đọc, và số mẫu của nó. Buffer luôn nằm ở gốc: cir_samples[0]
+     * ĐÚNG LÀ CIR0 in ra CSV — FAST là mẫu FP_IDX-2, FULL là mẫu 0 của đáp ứng
+     * xung. Vì vậy chỗ in chỉ việc duyệt cir_samples[0..cir_len-1], KHÔNG cộng
+     * thêm offset nào (gốc cửa sổ chỉ dùng lúc gọi read_cir_samples). */
+    uint16_t        cir_len;
 } anchor_data_t;
 
 /* Global storage */
@@ -103,6 +114,10 @@ static volatile int incomplete_cycles = 0;
 
 /* extern config from main.c */
 extern dwt_config_t config;
+
+/* Chế độ đọc CIR, chọn bằng CIR_FULL_CAPTURE trong main.c:
+ * 0 = FAST (50 mẫu quanh FP), 1 = FULL (cả 1016 mẫu). */
+extern const uint8_t cir_full_capture;
 
 // ============================================================================
 // HELPER: power calculations
@@ -185,23 +200,22 @@ int8_t RX_PWR(dwt_rxdiag_t diag)
 
 #define CHUNK_SIZE  16
 
-static void read_cir_samples_fast(cir_sample_t *samples, int fp_index)
+/* Đọc `n` mẫu CIR liên tiếp từ accumulator, bắt đầu từ mẫu thứ `first`.
+ * Offset truyền cho dwt_readaccdata tính bằng BYTE, mà mỗi mẫu chiếm 4 byte
+ * (real + img) nên byte_offset = (first + samples_read) * 4.
+ * DW1000 luôn trả về 1 byte rác ở đầu mỗi lần đọc accumulator — kể cả khi đọc
+ * từ sub-index khác 0 — nên mỗi chunk phải xin thêm 1 byte rồi bỏ qua nó. */
+static void read_cir_samples(cir_sample_t *samples, uint16_t first, uint16_t n)
 {
-    int start_idx = fp_index - 2;
-    if (start_idx < 0) start_idx = 0;
-
-    int max_idx = 1016 - CIR_SAMPLES_PER_ANCHOR;
-    if (start_idx > max_idx) start_idx = max_idx;
-
     uint8_t buffer[CHUNK_SIZE * 4 + 1];
     int samples_read = 0;
 
-    while (samples_read < CIR_SAMPLES_PER_ANCHOR)
+    while (samples_read < n)
     {
-        int remaining  = CIR_SAMPLES_PER_ANCHOR - samples_read;
+        int remaining  = n - samples_read;
         int this_chunk = (remaining < CHUNK_SIZE) ? remaining : CHUNK_SIZE;
 
-        int byte_offset = (start_idx + samples_read) * 4;
+        int byte_offset = (first + samples_read) * 4;
 
         dwt_readaccdata(buffer, this_chunk * 4 + 1, byte_offset);
 
@@ -224,7 +238,7 @@ static cir_multipath_t compute_multipath_features(cir_sample_t *samples, int n)
 {
     cir_multipath_t mp = {0.0f, 0.0f, 0};
 
-    float mag[CIR_SAMPLES_PER_ANCHOR];
+    static float mag[CIR_SAMPLES_PER_ANCHOR];
     float mean = 0.0f;
 
     for (int i = 0; i < n; i++)
@@ -281,8 +295,25 @@ static void capture_anchor_diagnostics(uint8_t anchor_idx)
     data->cir_pwr  = readCIR_PWR_fast();
     data->fp_index = data->diagnostics.firstPath >> 6;
 
-    read_cir_samples_fast(data->cir_samples, data->fp_index);
-    data->multipath = compute_multipath_features(data->cir_samples, CIR_SAMPLES_PER_ANCHOR);
+    /* FULL: cả 1016 mẫu, gốc là mẫu 0 của đáp ứng xung.
+     * FAST: 50 mẫu quanh FP, gốc là FP_IDX - CIR_FAST_PRE.
+     * Gốc cửa sổ chỉ có tác dụng ở đây: read_cir_samples luôn ghi vào
+     * cir_samples[0..cir_len-1]. */
+    uint16_t first;
+
+    if (cir_full_capture)
+    {
+        first         = 0;
+        data->cir_len = CIR_SAMPLES_PER_ANCHOR;
+    }
+    else
+    {
+        first         = data->fp_index - CIR_FAST_PRE;
+        data->cir_len = CIR_FAST_LEN;
+    }
+
+    read_cir_samples(data->cir_samples, first, data->cir_len);
+    data->multipath = compute_multipath_features(data->cir_samples, data->cir_len);
 
     data->valid = 1;
 }
@@ -290,27 +321,20 @@ static void capture_anchor_diagnostics(uint8_t anchor_idx)
 // ============================================================================
 // PRINT: in theo format CSV chuẩn
 // NLOS,RANGE,FP_IDX,FP_AMP1,FP_AMP2,FP_AMP3,STDEV_NOISE,CIR_PWR,
-// MAX_NOISE,RXPACC,CH,FRAME_LEN,PREAM_LEN,BITRATE,PRFR,CIR0..CIR99
+// MAX_NOISE,RXPACC,CH,FRAME_LEN,PREAM_LEN,BITRATE,PRFR,CIR0..CIRn
+//
+// Số cột CIR do mode quyết định (xem main.c):
+//   FAST — CIR0..CIR49,  CIR0 = mẫu FP_IDX-2
+//   FULL — CIR0..CIR1015, CIR0 = mẫu đầu của đáp ứng xung
 // ============================================================================
 
 static void print_all_distances(void)
 {
-    static char line_buffer[25000];
+    /* Mode FULL cần ~1016*5 + 60 byte ≈ 5,2 KB cho một dòng, nên buffer phải
+     * để dư: 10 KB. Đây là biến static vì stack của task chỉ ~1,8 KB. */
+    static char line_buffer[10000];
 
     complete_cycles++;
-
-    if (!ml_header_printed)
-    {
-        printf("NLOS,RANGE,FP_IDX,FP_AMP1,FP_AMP2,FP_AMP3,"
-               "STDEV_NOISE,CIR_PWR,MAX_NOISE,RXPACC,"
-               "CH,FRAME_LEN,PREAM_LEN,BITRATE,PRFR");
-
-        for (int s = 0; s < CIR_SAMPLES_PER_ANCHOR; s++)
-            printf(",CIR%d", s);
-
-        printf("\r\n");
-        ml_header_printed = 1;
-    }
 
     for (int anchor_idx = 0; anchor_idx < NUM_ANCHORS; anchor_idx++)
     {
@@ -323,17 +347,17 @@ static void print_all_distances(void)
                        data->distance);
 
         /* FP_IDX, FP_AMP1, FP_AMP2, FP_AMP3, STDEV_NOISE, CIR_PWR, MAX_NOISE, RXPACC */
-        //pos += sprintf(line_buffer + pos,
-        //               ",%u,%u,%u,%u,%u,%u,%u",
-        //               data->fp_index,
-        //               data->diagnostics.firstPathAmp1,
-        //               data->diagnostics.firstPathAmp2,
-        //               data->diagnostics.firstPathAmp3,
-        //               data->diagnostics.stdNoise,
-        //               data->cir_pwr,
-        //               data->diagnostics.maxNoise);
+        pos += sprintf(line_buffer + pos,
+                       ",%u,%u,%u,%u,%u,%u,%u",
+                       data->fp_index,
+                       data->diagnostics.firstPathAmp1,
+                       data->diagnostics.firstPathAmp2,
+                       data->diagnostics.firstPathAmp3,
+                       data->diagnostics.stdNoise,
+                       data->cir_pwr,
+                       data->diagnostics.maxNoise);
 
-        /* CH, FRAME_LEN, PREAM_LEN, BITRATE, PRFR — từ config tĩnh + frame_len */
+        ///* CH, FRAME_LEN, PREAM_LEN, BITRATE, PRFR — từ config tĩnh + frame_len */
         //pos += sprintf(line_buffer + pos,
         //               ",%u,%lu,%u,%u,%u",
         //               config.chan,
@@ -342,20 +366,34 @@ static void print_all_distances(void)
         //               config.dataRate,
         //               config.prf);
 
-        /* CIR magnitude */
-        for (int s = 0; s < CIR_SAMPLES_PER_ANCHOR; s++)
+        /* CIR magnitude dạng HEX text 4 chữ số (VD: ,01A2) — 50 mẫu (FAST)
+         * hoặc 1016 mẫu (FULL). Buffer đã ở gốc cửa sổ nên chỉ duyệt từ 0. */
+        static const char hex_digits[] = "0123456789ABCDEF";
+        for (int i = 0; i < data->cir_len; i++)
         {
-            int32_t  r         = data->cir_samples[s].real;
-            int32_t  im        = data->cir_samples[s].img;
+            int32_t  r         = data->cir_samples[i].real;
+            int32_t  im        = data->cir_samples[i].img;
             uint32_t magnitude = sqrt_uint32((uint32_t)(r * r + im * im));
-            pos += sprintf(line_buffer + pos, ",%lu", magnitude);
-        }
+            if (magnitude > 0xFFFF) magnitude = 0xFFFF;
 
+            line_buffer[pos++] = ',';
+            line_buffer[pos++] = hex_digits[(magnitude >> 12) & 0x0F];
+            line_buffer[pos++] = hex_digits[(magnitude >> 8)  & 0x0F];
+            line_buffer[pos++] = hex_digits[(magnitude >> 4)  & 0x0F];
+            line_buffer[pos++] = hex_digits[magnitude & 0x0F];
+        }
+        line_buffer[pos++] = '|';
         line_buffer[pos++] = '\r';
         line_buffer[pos++] = '\n';
         line_buffer[pos]   = '\0';
 
-        printf("%s", line_buffer);
+        for (int k = 0; k < pos; k++)
+        {
+            while (app_uart_put((uint8_t)line_buffer[k]) != NRF_SUCCESS)
+            {
+                vTaskDelay(1);
+            }
+        }
     }
 }
 
@@ -531,6 +569,9 @@ void ss_initiator_task_function(void *pvParameter)
     printf("Time slot per anchor: %d ms\r\n", TIME_SLOT_MS);
     printf("Response timeout:     %d ms\r\n", RESPONSE_TIMEOUT_MS);
     printf("Cycle delay:          %d ms\r\n", CYCLE_DELAY_MS);
+    printf("CIR capture:          %s\r\n",
+           cir_full_capture ? "FULL - 1016 mau (CIR0 = mau 0)"
+                            : "FAST - 50 mau quanh FP (CIR0 = FP_IDX-2)");
     printf("Total cycle time: ~%d ms\r\n", NUM_ANCHORS * TIME_SLOT_MS + CYCLE_DELAY_MS);
     printf("Anchor IDs: 0x%04X, 0x%04X, 0x%04X, 0x%04X\r\n",
            ANCHOR_1, ANCHOR_2, ANCHOR_3, ANCHOR_4);

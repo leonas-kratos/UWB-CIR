@@ -39,7 +39,7 @@
 //-----------------dw1000----------------------------
 
 dwt_config_t config = {
-    2,                /* Channel number. */
+    5,                /* Channel number. */
     DWT_PRF_64M,      /* Pulse repetition frequency. */
     DWT_PLEN_1024,     /* Preamble length. Used in TX only. */
     DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
@@ -63,6 +63,25 @@ dwt_config_t config = {
 
 //--------------dw1000---end---------------
 
+//-----------------CIR capture mode------------------------------------------
+/* Chọn chế độ đọc CIR của initiator — ĐỔI Ở ĐÂY rồi build + nạp lại:
+ *
+ *   CIR_FULL_CAPTURE = 0  (FAST) — chỉ đọc 50 mẫu quanh First Path
+ *                                 (FP_IDX-2 .. FP_IDX+47), một burst SPI ~201
+ *                                 byte. CSV có CIR0..CIR49 với CIR0 = FP_IDX-2.
+ *
+ *   CIR_FULL_CAPTURE = 1  (FULL) — đọc toàn bộ 1016 mẫu của accumulator, bắt
+ *                                 đầu từ mẫu 0. CSV có CIR0..CIR1015 với CIR0
+ *                                 là mẫu đầu của đáp ứng xung.
+ *
+ * Phía Python phải khớp: FAST dùng --n-cir 50 (mặc định), FULL dùng
+ * --n-cir 1016. Code/split_io.py tự nhận diện format theo số cột CIR.
+ *
+ * Biến `cir_full_capture` bên dưới là cách duy nhất chia sẻ được lựa chọn này
+ * sang ss_init_main.c (#define không đi qua được biên dịch đơn vị). */
+#define CIR_FULL_CAPTURE 0
+
+const uint8_t cir_full_capture = CIR_FULL_CAPTURE;
 
 #define TASK_DELAY        100           /**< Task delay. Delays a LED0 task for 200 ms */
 #define TIMER_PERIOD      2000          /**< Timer period. LED1 timer will expire after 1000 ms */
@@ -162,7 +181,7 @@ int main(void)
   /* Set expected response's delay and timeout. 
   * As this example only handles one incoming frame with always the same delay and timeout, those values can be set here once for all. */
   dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
-  dwt_setrxtimeout(3000); // Maximum value timeout with DW1000 is 65ms  
+  dwt_setrxtimeout(6000); // Extended timeout to allow 2500uus response delay
 
   //-------------dw1000  ini------end---------------------------	
   // IF WE GET HERE THEN THE LEDS WILL BLINK

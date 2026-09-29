@@ -42,16 +42,16 @@
 //-----------------dw1000----------------------------
 
 static dwt_config_t config = {
-    2,                /* Channel number. */
+    5,                /* Channel number. */
     DWT_PRF_64M,      /* Pulse repetition frequency. */
-    DWT_PLEN_128,     /* Preamble length. Used in TX only. */
-    DWT_PAC32,         /* Preamble acquisition chunk size. Used in RX only. */
+    DWT_PLEN_1024,    /* Preamble length. Used in TX only. */
+    DWT_PAC8,         /* Preamble acquisition chunk size. Used in RX only. */
     10,               /* TX preamble code. Used in TX only. */
     10,               /* RX preamble code. Used in RX only. */
     1,                /* 0 to use standard SFD, 1 to use non-standard SFD. */
     DWT_BR_6M8,       /* Data rate. */
     DWT_PHRMODE_STD,  /* PHY header mode. */
-    (1025 + 64 - 32)     /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
+    (1025 + 8 - 8)    /* SFD timeout (preamble length + 1 + SFD length - PAC size). Used in RX only. */
 };
 
 #define TASK_DELAY        10            /**< Task delay. Delays a LED0 task for 200 ms */

@@ -16,7 +16,7 @@
 #define RNG_DELAY_MS 1
 
 /* Device ID for this responder - change this value for each device */
-#define MY_DEVICE_ID 0x1004
+#define MY_DEVICE_ID 0x1001
 
 /* Frames used in the ranging process. See NOTE 2,3 below. */
 // MODIFIED: Poll message now includes target device ID
@@ -52,8 +52,8 @@ static uint32 status_reg = 0;
 * 1 uus = 512 / 499.2 s and 1 s = 499.2 * 128 dtu. */
 #define UUS_TO_DWT_TIME 65536
 
-// Not enough time to write the data so TX timeout extended for nRF operation.
-#define POLL_RX_TO_RESP_TX_DLY_UUS  1000
+// Extended TX delay for nRF operation and Preamble 1024 LDE processing time (~800us)
+#define POLL_RX_TO_RESP_TX_DLY_UUS  2000
 
 /* This is the delay from the end of the frame transmission to the enable of the receiver, as programmed for the DW1000's wait for response feature. */
 #define RESP_TX_TO_FINAL_RX_DLY_UUS 300
@@ -77,6 +77,7 @@ int ss_resp_run(void)
   dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
   /* Poll for reception of a frame or error/timeout. See NOTE 5 below. */
+
   while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & (SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)))
   {};
 
@@ -104,17 +105,13 @@ int ss_resp_run(void)
       /* Extract target device ID from poll message */
       target_device_id = poll_msg_get_target_device_id(&rx_buffer[POLL_MSG_TARGET_DEVICE_ID_IDX]);
       
-      SEGGER_RTT_printf(0, "Received poll for Device ID: 0x%04X\n", target_device_id);
-      
       /* Check if this poll is intended for this device */
       if (target_device_id == MY_DEVICE_ID)
       {
         uint32 resp_tx_time;
         int ret;
 
-        SEGGER_RTT_printf(0, "Device ID matches! Processing poll and sending response.\n");
-
-        /* Retrieve poll reception timestamp. */
+        /* Retrieve poll reception timestamp immediately to avoid delay */
         poll_rx_ts = get_rx_timestamp_u64();
 
         /* Compute final message transmission time. See NOTE 7 below. */
